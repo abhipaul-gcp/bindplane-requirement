@@ -2181,10 +2181,10 @@ Use this checklist to ensure all requirements are met before deployment.
 - [ ] **NTP synchronized** across all servers (`chronyc tracking`)
 - [ ] **Disk space verified:**
   - Management: 100 GB available
-  - Gateways/Collectors: 50 GB available
+  - Gateways/Collectors: 1 TB available
 - [ ] **Memory requirements met:**
   - Management: 8 GB RAM minimum
-  - Gateways/Collectors: 4 GB RAM minimum
+  - Gateways/Collectors: 16 GB RAM minimum
 
 ### Network Requirements
 
