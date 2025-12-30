@@ -1,6 +1,6 @@
 #!/bin/bash
 # PostgreSQL 16 Installation Script for BindPlane
-# For RHEL 9.x offline installation
+# For RHEL 9.x offline installation (no internet required)
 # Complete database server setup with resilient error handling
 #
 # This script can be safely re-run if interrupted - it will detect
@@ -12,7 +12,7 @@ PACKAGE_DIR="/tmp/bindplane-packages/management"
 PGDATA="/var/lib/pgsql/16/data"
 PGVERSION="16"
 
-echo "=== PostgreSQL 16 Installation for BindPlane ==="
+echo "=== PostgreSQL 16 Installation for BindPlane (Offline Mode) ==="
 echo "Package directory: $PACKAGE_DIR"
 echo ""
 
@@ -22,25 +22,60 @@ if [ ! -d "$PACKAGE_DIR" ]; then
   exit 1
 fi
 
-# Install PostgreSQL repository
-echo "Installing PostgreSQL repository..."
-sudo rpm -ivh $PACKAGE_DIR/pgdg-redhat-repo-latest.noarch.rpm || true
+# Verify required RPM files exist
+echo "Verifying required PostgreSQL packages..."
+REQUIRED_PACKAGES=(
+  "postgresql16-libs-16"
+  "postgresql16-16"
+  "postgresql16-server-16"
+  "postgresql16-contrib-16"
+)
+
+for pkg in "${REQUIRED_PACKAGES[@]}"; do
+  if ! ls $PACKAGE_DIR/${pkg}.*.rpm 1> /dev/null 2>&1; then
+    echo "ERROR: Required package ${pkg}.*.rpm not found in $PACKAGE_DIR"
+    exit 1
+  fi
+done
+echo "✓ All required packages found"
 
 # Disable PostgreSQL modules (RHEL 9 specific)
+echo ""
 echo "Disabling PostgreSQL AppStream module..."
-sudo dnf -qy module disable postgresql
+sudo dnf -qy module disable postgresql 2>/dev/null || true
 
-# Install PostgreSQL 16 and dependencies
-echo "Installing PostgreSQL 16 packages..."
-sudo dnf install -y \
-  $PACKAGE_DIR/postgresql16-libs-16.*.rpm \
-  $PACKAGE_DIR/postgresql16-16.*.rpm \
-  $PACKAGE_DIR/postgresql16-server-16.*.rpm \
-  $PACKAGE_DIR/postgresql16-contrib-16.*.rpm
+# Install PostgreSQL 16 packages from local RPMs (no internet needed)
+echo ""
+echo "Installing PostgreSQL 16 packages from local RPMs..."
 
-echo "✓ PostgreSQL 16 packages installed"
+# Check if packages are already installed
+if rpm -q postgresql16-server &>/dev/null; then
+  echo "⚠ PostgreSQL 16 packages appear to be already installed"
+  read -p "Do you want to reinstall/upgrade? (yes/NO): " REINSTALL
+
+  if [ "$REINSTALL" = "yes" ]; then
+    echo "Reinstalling PostgreSQL 16 packages..."
+    sudo rpm -Uvh --force \
+      $PACKAGE_DIR/postgresql16-libs-16.*.rpm \
+      $PACKAGE_DIR/postgresql16-16.*.rpm \
+      $PACKAGE_DIR/postgresql16-server-16.*.rpm \
+      $PACKAGE_DIR/postgresql16-contrib-16.*.rpm
+    echo "✓ PostgreSQL 16 packages reinstalled"
+  else
+    echo "Skipping package installation..."
+  fi
+else
+  echo "Installing PostgreSQL 16 packages..."
+  sudo rpm -ivh \
+    $PACKAGE_DIR/postgresql16-libs-16.*.rpm \
+    $PACKAGE_DIR/postgresql16-16.*.rpm \
+    $PACKAGE_DIR/postgresql16-server-16.*.rpm \
+    $PACKAGE_DIR/postgresql16-contrib-16.*.rpm
+  echo "✓ PostgreSQL 16 packages installed"
+fi
 
 # Verify postgres user exists, create if needed
+echo ""
 if ! id postgres &>/dev/null; then
   echo "Creating postgres system user..."
   sudo useradd -r -m -d /var/lib/pgsql -s /bin/bash -c "PostgreSQL Server" postgres
@@ -62,6 +97,7 @@ if [ -f "$PGDATA/PG_VERSION" ]; then
     sudo mkdir -p $PGDATA
     sudo chown -R postgres:postgres /var/lib/pgsql/16
     sudo -u postgres /usr/pgsql-16/bin/initdb -D $PGDATA
+    echo "✓ Database cluster reinitialized"
   else
     echo "Skipping initialization..."
   fi
@@ -80,7 +116,27 @@ fi
 echo ""
 echo "Configuring PostgreSQL settings for production workload..."
 
-# Backup original postgresql.conf
+# Check if configuration already applied
+if grep -q "BindPlane Production Configuration" $PGDATA/postgresql.conf 2>/dev/null; then
+  echo "⚠ BindPlane configuration already exists in postgresql.conf"
+  read -p "Do you want to reapply configuration? (yes/NO): " RECONFIG
+
+  if [ "$RECONFIG" = "yes" ]; then
+    # Restore from backup or create new
+    if [ -f "$PGDATA/postgresql.conf.backup."* ]; then
+      LATEST_BACKUP=$(ls -t $PGDATA/postgresql.conf.backup.* | head -1)
+      sudo cp $LATEST_BACKUP $PGDATA/postgresql.conf
+      echo "✓ Restored configuration from backup: $LATEST_BACKUP"
+    fi
+  else
+    echo "Skipping configuration update..."
+  fi
+fi
+
+# Backup original postgresql.conf if not already backed up
+if [ ! -f "$PGDATA/postgresql.conf.original" ]; then
+  sudo cp $PGDATA/postgresql.conf $PGDATA/postgresql.conf.original
+fi
 sudo cp $PGDATA/postgresql.conf $PGDATA/postgresql.conf.backup.$(date +%Y%m%d_%H%M%S)
 
 # Apply production-grade PostgreSQL settings for 2 TB/day workload
