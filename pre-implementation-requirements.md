@@ -18,8 +18,9 @@
 7. [Network Load Balancer Configuration](#network-load-balancer-configuration)
 8. [Certificate Requirements for TLS/mTLS](#certificate-requirements-for-tlsmtls)
 9. [Active Directory Authentication](#active-directory-authentication)
-10. [Pre-Installation Checklist](#pre-installation-checklist)
-11. [Post-Installation Validation](#post-installation-validation)
+10. [Installation Procedure](#installation-procedure)
+11. [Pre-Installation Checklist](#pre-installation-checklist)
+12. [Post-Installation Validation](#post-installation-validation)
 
 ---
 
@@ -29,7 +30,7 @@ This document outlines the complete requirements for deploying BindPlane in a ha
 
 - **1 BindPlane Management Server** with PostgreSQL 16 database
 - **3 Gateway Instances** behind Network Load Balancer (NLB)
-- **3 Collector Instances** consuming from Kafka and forwarding to gateways
+- **3+ Collector Instances** consuming from Kafka and forwarding to gateways
 - **Full TLS/mTLS** encryption for all communication paths
 - **Active Directory** integration for authentication
 - **Offline installation** capability for air-gapped environments
@@ -118,32 +119,106 @@ curl -L "https://storage.googleapis.com/bindplane-op-releases/bindplane/1.96.7/b
 ```bash
 # PostgreSQL 16 Repository RPM
 Package: pgdg-redhat-repo-latest.noarch.rpm
+Size: ~13 KB
 Download URL: https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm
 
-# PostgreSQL 16 Server
-Package: postgresql16-server-16.x.x86_64.rpm
-Size: ~6 MB
+# Direct download:
+wget https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm
+```
 
-# PostgreSQL 16 Client
-Package: postgresql16-16.x.x86_64.rpm
-Size: ~2 MB
+**PostgreSQL 16 Core Packages:**
 
-# PostgreSQL 16 Libs
-Package: postgresql16-libs-16.x.x86_64.rpm
-Size: ~400 KB
+PostgreSQL packages must be downloaded using `dnf download` after installing the repository, as they have version-specific dependencies.
 
-# PostgreSQL 16 Contrib (optional utilities)
-Package: postgresql16-contrib-16.x.x86_64.rpm
-Size: ~700 KB
+```bash
+# Step 1: Download PostgreSQL repository RPM
+wget https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm
+
+# Step 2: Install repository temporarily (on internet-connected system)
+sudo rpm -ivh pgdg-redhat-repo-latest.noarch.rpm
+
+# Step 3: Disable RHEL PostgreSQL module
+sudo dnf -qy module disable postgresql
+
+# Step 4: Download PostgreSQL 16 packages with all dependencies
+sudo dnf download --resolve --alldeps --destdir=/tmp/postgresql16-packages \
+  postgresql16 \
+  postgresql16-server \
+  postgresql16-libs \
+  postgresql16-contrib
+
+# This will download approximately:
+# - postgresql16-16.x-1PGDG.rhel9.x86_64.rpm (~2 MB)
+# - postgresql16-server-16.x-1PGDG.rhel9.x86_64.rpm (~6 MB)
+# - postgresql16-libs-16.x-1PGDG.rhel9.x86_64.rpm (~400 KB)
+# - postgresql16-contrib-16.x-1PGDG.rhel9.x86_64.rpm (~700 KB)
+# - Plus additional dependencies
+```
+
+**Alternative: Manual Download from PostgreSQL Repository**
+
+You can browse and download packages directly from:
+- **Base URL:** https://download.postgresql.org/pub/repos/yum/16/redhat/rhel-9-x86_64/
+- Navigate to find the latest version (e.g., 16.6, 16.7, etc.)
+
+**Note:** Package versions change frequently. Use `dnf download --resolve --alldeps` method to ensure you get all required dependencies for the specific version available.
 ```
 
 **Dependencies for PostgreSQL:**
 
+PostgreSQL 16 requires several system libraries that must be downloaded separately.
+
 ```bash
-# Common dependencies (download from RHEL repository or mirror)
-libicu-<version>.el9.x86_64.rpm
-lz4-<version>.el9.x86_64.rpm
+# libicu - Unicode and Globalization libraries (BaseOS)
+Package: libicu-67.1-10.el9_6.x86_64.rpm
+Size: ~9.8 MB
+Download URL: https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/l/libicu-67.1-10.el9_6.x86_64.rpm
+
+# lz4 - Fast compression algorithm binary (BaseOS)
+Package: lz4-1.9.3-5.el9.x86_64.rpm
+Size: ~58 KB
+Download URL: https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/l/lz4-1.9.3-5.el9.x86_64.rpm
+
+# lz4-libs - LZ4 shared libraries (BaseOS)
+Package: lz4-libs-1.9.3-5.el9.x86_64.rpm
+Size: ~67 KB
+Download URL: https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/l/lz4-libs-1.9.3-5.el9.x86_64.rpm
+
+# libxslt - XSLT processing library (AppStream)
+Package: libxslt-1.1.34-13.el9_6.x86_64.rpm
+Size: ~250 KB
+Download URL: https://download.rockylinux.org/pub/rocky/9/AppStream/x86_64/os/Packages/l/libxslt-1.1.34-13.el9_6.x86_64.rpm
+
+# OpenSSL 3.x - Cryptographic libraries (BaseOS)
+Package: openssl-3.5.1-4.el9_7.x86_64.rpm
+Size: ~1.4 MB
+Download URL: https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/o/openssl-3.5.1-4.el9_7.x86_64.rpm
+
+Package: openssl-libs-3.5.1-4.el9_7.x86_64.rpm
+Size: ~2.3 MB
+Download URL: https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/o/openssl-libs-3.5.1-4.el9_7.x86_64.rpm
+
+# CA Certificates - Mozilla certificate bundle (BaseOS)
+Package: ca-certificates-2025.2.80_v9.0.305-91.el9.noarch.rpm
+Size: ~947 KB
+Download URL: https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/c/ca-certificates-2025.2.80_v9.0.305-91.el9.noarch.rpm
 ```
+
+**Alternative: Browse Rocky Linux Package Repository**
+
+If the above package versions are outdated, you can find the latest versions at:
+
+- **Rocky Linux BaseOS Packages:** https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/
+- **Rocky Linux AppStream Packages:** https://download.rockylinux.org/pub/rocky/9/AppStream/x86_64/os/Packages/
+
+Navigate to the first letter of the package name:
+- `libicu` → Go to `/l/` directory
+- `lz4` → Go to `/l/` directory
+- `libxslt` → Go to `/l/` in AppStream
+- `openssl` → Go to `/o/` directory
+- `ca-certificates` → Go to `/c/` directory
+
+**Note:** Rocky Linux and AlmaLinux packages are binary-compatible with RHEL 9 and safe to use on RHEL systems.
 
 **BindPlane Configuration Scripts:**
 
@@ -185,18 +260,32 @@ Contents after extraction:
 
 **Required for certificate generation and validation:**
 
+OpenSSL is usually pre-installed on RHEL 9, but you may need to upgrade or install specific versions.
+
 ```bash
-# OpenSSL (usually pre-installed on RHEL 9)
-Package: openssl-3.x.x.el9.x86_64.rpm
-Size: ~1.2 MB
+# OpenSSL 3.5.1
+Package: openssl-3.5.1-4.el9_7.x86_64.rpm
+Size: ~1.4 MB
+Download URL: https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/o/openssl-3.5.1-4.el9_7.x86_64.rpm
 
-# OpenSSL libs
-Package: openssl-libs-3.x.x.el9.x86_64.rpm
-Size: ~2.5 MB
+# OpenSSL libraries
+Package: openssl-libs-3.5.1-4.el9_7.x86_64.rpm
+Size: ~2.3 MB
+Download URL: https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/o/openssl-libs-3.5.1-4.el9_7.x86_64.rpm
 
-# CA certificates bundle
-Package: ca-certificates-<version>.el9.noarch.rpm
-Size: ~400 KB
+# CA certificates bundle (2025 version)
+Package: ca-certificates-2025.2.80_v9.0.305-91.el9.noarch.rpm
+Size: ~947 KB
+Download URL: https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/c/ca-certificates-2025.2.80_v9.0.305-91.el9.noarch.rpm
+```
+
+**Quick Download Script:**
+
+```bash
+# Download OpenSSL and CA certificates
+wget https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/o/openssl-3.5.1-4.el9_7.x86_64.rpm
+wget https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/o/openssl-libs-3.5.1-4.el9_7.x86_64.rpm
+wget https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/c/ca-certificates-2025.2.80_v9.0.305-91.el9.noarch.rpm
 ```
 
 #### 4. System Utilities
@@ -228,8 +317,20 @@ mkdir -p /tmp/bindplane-packages/{management,gateway,collector,common}
 cd /tmp/bindplane-packages/management
 wget https://storage.googleapis.com/bindplane-op-releases/bindplane/1.96.7/bindplane-ee_linux_amd64.rpm -O bindplane-ee_v1.96.7-linux_amd64.rpm
 
-# Download PostgreSQL
+# Download PostgreSQL repository
 wget https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm
+
+# Download PostgreSQL dependencies from Rocky Linux (RHEL-compatible)
+cd /tmp/bindplane-packages/common
+wget https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/l/libicu-67.1-10.el9_6.x86_64.rpm
+wget https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/l/lz4-1.9.3-5.el9.x86_64.rpm
+wget https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/l/lz4-libs-1.9.3-5.el9.x86_64.rpm
+wget https://download.rockylinux.org/pub/rocky/9/AppStream/x86_64/os/Packages/l/libxslt-1.1.34-13.el9_6.x86_64.rpm
+
+# Download OpenSSL and CA certificates
+wget https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/o/openssl-3.5.1-4.el9_7.x86_64.rpm
+wget https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/o/openssl-libs-3.5.1-4.el9_7.x86_64.rpm
+wget https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/c/ca-certificates-2025.2.80_v9.0.305-91.el9.noarch.rpm
 
 # Download collector
 cd /tmp/bindplane-packages/collector
@@ -258,9 +359,57 @@ sha256sum -c SHA256SUMS
 
 ### Installation Scripts
 
-#### Management Server Installation Script
+**⚠️ IMPORTANT: Two Installation Approaches Available**
+
+BindPlane offers two installation approaches. Choose based on your deployment type:
+
+#### Recommended: Two-Part Installation (Production)
+
+**For production deployments, use the modern two-part installation:**
+
+1. **Part 1:** `install-postgresql.sh` - PostgreSQL 16 with production optimization
+   - Location: `scripts/install-postgresql.sh`
+   - Download: `https://raw.githubusercontent.com/abhipaul-gcp/bindplane/master/scripts/install-postgresql.sh`
+   - Features: Production-tuned settings for 2TB/day workload, interactive secure password creation
+
+2. **Part 2:** `install-linux.sh --init` - Official BindPlane installer with interactive configuration
+   - Download: `https://storage.googleapis.com/bindplane-op-releases/bindplane/latest/install-linux.sh`
+   - Features: Interactive prompts, flexible configuration, proper validation
+
+**When to use:**
+- ✅ Production deployments
+- ✅ Enterprise environments
+- ✅ When you need production-grade PostgreSQL tuning
+- ✅ When you want interactive configuration
+- ✅ Better troubleshooting and component isolation
+
+**Documentation:** See `docs/bindplane-installation-guide.md` for complete instructions.
+
+---
+
+#### Legacy: All-in-One Installation Script (Testing Only)
 
 **File:** `install-management-server.sh`
+
+**⚠️ This is a LEGACY script for quick testing/development ONLY.**
+
+**When to use:**
+- ⚠️ Quick testing/development environments
+- ⚠️ Proof-of-concept deployments
+- ⚠️ Non-production testing
+
+**NOT recommended for:**
+- ✗ Production deployments
+- ✗ When you need optimized PostgreSQL settings
+- ✗ When you need interactive configuration
+
+**Limitations:**
+- Uses default PostgreSQL settings (not production-optimized)
+- Hardcoded password that must be changed manually
+- No interactive configuration
+- Requires significant manual post-installation setup
+
+**Purpose:** This script is documented here for backward compatibility and reference, but **production deployments should use the two-part installation approach** instead.
 
 ```bash
 #!/bin/bash
@@ -277,6 +426,15 @@ CONFIG_DIR="/etc/bindplane"
 echo "=== BindPlane Management Server Installation ==="
 echo "Package directory: $PACKAGE_DIR"
 
+# Create BindPlane system user if it doesn't exist
+echo "Creating BindPlane service user..."
+if ! id -u bindplane >/dev/null 2>&1; then
+  sudo useradd -r -m -d /var/lib/bindplane -s /bin/false -c "BindPlane Service User" bindplane
+  echo "✓ Created bindplane user"
+else
+  echo "✓ User bindplane already exists"
+fi
+
 # Install PostgreSQL repository
 echo "Installing PostgreSQL repository..."
 sudo rpm -ivh $PACKAGE_DIR/pgdg-redhat-repo-latest.noarch.rpm || true
@@ -292,6 +450,9 @@ sudo dnf install -y \
   $PACKAGE_DIR/postgresql16-server-*.rpm \
   $PACKAGE_DIR/postgresql16-contrib-*.rpm
 
+# Note: PostgreSQL installation automatically creates the 'postgres' system user
+echo "✓ PostgreSQL installed (postgres user created automatically)"
+
 # Initialize PostgreSQL
 echo "Initializing PostgreSQL database..."
 sudo /usr/pgsql-16/bin/postgresql-16-setup initdb
@@ -300,11 +461,32 @@ sudo /usr/pgsql-16/bin/postgresql-16-setup initdb
 sudo systemctl enable postgresql-16
 sudo systemctl start postgresql-16
 
-# Configure PostgreSQL for BindPlane
-echo "Configuring PostgreSQL..."
-sudo -u postgres psql -c "CREATE DATABASE bindplane;"
-sudo -u postgres psql -c "CREATE USER bindplane WITH ENCRYPTED PASSWORD 'CHANGE_ME';"
-sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE bindplane TO bindplane;"
+# Configure PostgreSQL for BindPlane (Official BindPlane Configuration)
+echo "Configuring PostgreSQL for BindPlane..."
+sudo -u postgres psql << 'EOSQL'
+-- Create BindPlane database user with password
+CREATE USER "bindplane" WITH PASSWORD 'CHANGE_ME_STRONG_PASSWORD';
+
+-- Create BindPlane database with UTF8 encoding
+CREATE DATABASE "bindplane" ENCODING 'UTF8' TEMPLATE template0;
+
+-- Grant CREATE privilege on database to bindplane user
+GRANT CREATE ON DATABASE "bindplane" TO "bindplane";
+
+-- Connect to bindplane database
+\c "bindplane";
+
+-- Grant all privileges on tables in public schema
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO "bindplane";
+
+-- Grant all privileges on sequences in public schema
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO "bindplane";
+
+-- Grant all privileges on public schema
+GRANT ALL PRIVILEGES ON SCHEMA public TO "bindplane";
+EOSQL
+
+echo "✓ PostgreSQL configured for BindPlane"
 
 # Update pg_hba.conf for local access
 sudo tee -a /var/lib/pgsql/16/data/pg_hba.conf > /dev/null <<'EOF'
@@ -327,10 +509,17 @@ sudo mkdir -p $DATA_DIR $CONFIG_DIR/ssl
 sudo chown -R $INSTALL_USER:$INSTALL_USER $DATA_DIR $CONFIG_DIR
 
 echo "=== Installation Complete ==="
+echo ""
+echo "Service Users Created:"
+echo "  ✓ bindplane (system user) - BindPlane service"
+echo "  ✓ postgres (system user) - PostgreSQL service (auto-created by RPM)"
+echo "  ✓ bindplane (database user) - BindPlane database access"
+echo ""
 echo "Next steps:"
 echo "1. Configure TLS certificates in $CONFIG_DIR/ssl/"
 echo "2. Update BindPlane configuration in $CONFIG_DIR/config.yaml"
-echo "3. Start BindPlane service: sudo systemctl start bindplane"
+echo "3. Update PostgreSQL password: sudo -u postgres psql -c \"ALTER USER bindplane WITH PASSWORD 'new_strong_password';\""
+echo "4. Start BindPlane service: sudo systemctl start bindplane"
 ```
 
 #### Gateway/Collector Installation Script
@@ -368,8 +557,13 @@ sudo cp logging.yaml $INSTALL_DIR/
 sudo cp -r plugins $INSTALL_DIR/
 
 # Create service user
-echo "Creating service user..."
-sudo useradd -r -s /bin/false $SERVICE_USER || true
+echo "Creating ObservIQ collector service user..."
+if ! id -u $SERVICE_USER >/dev/null 2>&1; then
+  sudo useradd -r -m -d /var/lib/observiq-otel-collector -s /bin/false -c "ObservIQ Collector Service User" $SERVICE_USER
+  echo "✓ Created $SERVICE_USER user"
+else
+  echo "✓ User $SERVICE_USER already exists"
+fi
 
 # Set permissions
 echo "Setting permissions..."
@@ -379,6 +573,95 @@ sudo chmod +x $INSTALL_DIR/observiq-otel-collector
 # Create SSL directory
 sudo mkdir -p $INSTALL_DIR/ssl
 sudo chown $SERVICE_USER:$SERVICE_USER $INSTALL_DIR/ssl
+
+# Create storage directories for file_storage extension
+echo "Creating storage directories..."
+sudo mkdir -p /var/log/observiq-otel-collector
+sudo chown $SERVICE_USER:$SERVICE_USER /var/log/observiq-otel-collector
+sudo chmod 755 /var/log/observiq-otel-collector
+
+sudo mkdir -p /var/lib/observiq-otel-collector/storage
+sudo chown -R $SERVICE_USER:$SERVICE_USER /var/lib/observiq-otel-collector
+sudo chmod 755 /var/lib/observiq-otel-collector/storage
+
+sudo mkdir -p /storage
+sudo chown -R $SERVICE_USER:$SERVICE_USER /storage
+sudo chmod 755 /storage
+
+# Create manager.yaml with unique agent ID
+echo ""
+echo "=== BindPlane OpAMP Configuration ==="
+echo ""
+MY_AGENT_ID=$(cat /proc/sys/kernel/random/uuid)
+echo "Generated unique Agent ID: $MY_AGENT_ID"
+echo ""
+
+# Ask if user wants to provide BindPlane endpoint and secret key
+read -p "Do you want to configure BindPlane endpoint and secret key now? (yes/no): " CONFIGURE_NOW
+
+if [ "$CONFIGURE_NOW" = "yes" ]; then
+    echo ""
+    echo "Please provide the following information from your BindPlane server:"
+    echo ""
+
+    # Get endpoint
+    read -p "Enter BindPlane OpAMP endpoint (e.g., ws://10.10.0.7:3001/v1/opamp): " OPAMP_ENDPOINT
+
+    # Validate endpoint is not empty
+    while [ -z "$OPAMP_ENDPOINT" ]; do
+        echo "⚠️  Endpoint cannot be empty"
+        read -p "Enter BindPlane OpAMP endpoint: " OPAMP_ENDPOINT
+    done
+
+    # Get secret key
+    read -p "Enter BindPlane secret key: " SECRET_KEY
+
+    # Validate secret key is not empty
+    while [ -z "$SECRET_KEY" ]; do
+        echo "⚠️  Secret key cannot be empty"
+        read -p "Enter BindPlane secret key: " SECRET_KEY
+    done
+
+    echo ""
+    echo "Configuration summary:"
+    echo "  Endpoint: $OPAMP_ENDPOINT"
+    echo "  Secret Key: ${SECRET_KEY:0:10}... (masked)"
+    echo "  Agent ID: $MY_AGENT_ID"
+    echo ""
+else
+    # Use default values
+    OPAMP_ENDPOINT="ws://10.10.0.7:3001/v1/opamp"
+    SECRET_KEY="YOUR_SECRET_KEY_HERE"
+    echo ""
+    echo "⚠️  Using default placeholder values."
+    echo "   You will need to update manager.yaml manually after installation."
+    echo ""
+fi
+
+# Create manager.yaml
+echo "Creating manager.yaml configuration..."
+sudo sh -c "cat > $INSTALL_DIR/manager.yaml <<EOF
+endpoint: \"$OPAMP_ENDPOINT\"
+secret_key: \"$SECRET_KEY\"
+agent_id: \"$MY_AGENT_ID\"
+EOF"
+
+sudo chown $SERVICE_USER:$SERVICE_USER $INSTALL_DIR/manager.yaml
+sudo chmod 644 $INSTALL_DIR/manager.yaml
+echo "✓ Created manager.yaml with unique agent ID"
+
+# Update logging configuration
+echo "Configuring logging..."
+sudo tee $INSTALL_DIR/logging.yaml > /dev/null <<'LOGEOF'
+output_paths:
+  - /var/log/observiq-otel-collector/collector.log
+error_output_paths:
+  - /var/log/observiq-otel-collector/collector-error.log
+level: info
+encoding: console
+LOGEOF
+
+sudo chown $SERVICE_USER:$SERVICE_USER $INSTALL_DIR/logging.yaml
 
 # Create systemd service
 echo "Creating systemd service..."
@@ -397,12 +680,13 @@ Restart=on-failure
 RestartSec=5s
 LimitNOFILE=55000
 
-# Security hardening
+# Security hardening with write access to required paths
+# ReadWritePaths is critical for BindPlane OpAMP to remotely update manager.yaml
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/observiq-otel-collector
+ReadWritePaths=/opt/observiq-otel-collector /var/log/observiq-otel-collector /var/lib/observiq-otel-collector /storage
 
 [Install]
 WantedBy=multi-user.target
@@ -411,12 +695,708 @@ EOF
 # Reload systemd
 sudo systemctl daemon-reload
 
-echo "=== Installation Complete ==="
-echo "Next steps:"
-echo "1. Configure manager.yaml for OpAMP connection"
-echo "2. Deploy TLS certificates to $INSTALL_DIR/ssl/"
-echo "3. Enable service: sudo systemctl enable observiq-otel-collector"
-echo "4. Start service: sudo systemctl start observiq-otel-collector"
+# Enable service to start on boot
+echo "Enabling service to start on boot..."
+sudo systemctl enable observiq-otel-collector
+
+echo ""
+echo "======================================"
+echo "Installation Complete!"
+echo "======================================"
+echo ""
+echo "✓ Collector installed successfully"
+echo "✓ manager.yaml created with unique agent ID: $MY_AGENT_ID"
+echo "✓ Service enabled to start on boot"
+echo ""
+
+# Show different next steps based on configuration choice
+if [ "$CONFIGURE_NOW" = "yes" ]; then
+    echo "Configuration Summary:"
+    echo "  Endpoint: $OPAMP_ENDPOINT"
+    echo "  Agent ID: $MY_AGENT_ID"
+    echo ""
+    echo "Next steps:"
+    echo "1. Start the collector service:"
+    echo "   sudo systemctl start observiq-otel-collector"
+    echo ""
+    echo "2. Verify the service status:"
+    echo "   sudo systemctl status observiq-otel-collector"
+    echo ""
+    echo "3. Check that the collector appears in BindPlane UI:"
+    echo "   Navigate to your BindPlane server and verify the agent is connected"
+    echo ""
+    echo "4. View real-time logs:"
+    echo "   sudo journalctl -u observiq-otel-collector -f"
+    echo ""
+    echo "5. (Optional) Deploy TLS certificates to $INSTALL_DIR/ssl/"
+else
+    echo "⚠️  Configuration Required:"
+    echo ""
+    echo "Next steps:"
+    echo "1. Update manager.yaml with your BindPlane endpoint and secret key:"
+    echo "   sudo nano $INSTALL_DIR/manager.yaml"
+    echo ""
+    echo "   Get these values from BindPlane UI:"
+    echo "   - Navigate to: Settings → Installation"
+    echo "   - Copy the endpoint (ws://YOUR_SERVER:3001/v1/opamp)"
+    echo "   - Copy the secret key"
+    echo ""
+    echo "2. Start the collector service:"
+    echo "   sudo systemctl start observiq-otel-collector"
+    echo ""
+    echo "3. Verify the service status:"
+    echo "   sudo systemctl status observiq-otel-collector"
+    echo ""
+    echo "4. Check logs for connection status:"
+    echo "   sudo journalctl -u observiq-otel-collector -f"
+fi
+echo ""
+echo "Troubleshooting:"
+echo "  View configuration: cat $INSTALL_DIR/manager.yaml"
+echo "  Check permissions: ls -la $INSTALL_DIR/"
+if [ "$CONFIGURE_NOW" = "yes" ]; then
+    # Extract hostname and port from endpoint
+    MGMT_HOST=$(echo "$OPAMP_ENDPOINT" | sed -E 's|^wss?://([^:/]+).*|\1|')
+    MGMT_PORT=$(echo "$OPAMP_ENDPOINT" | sed -E 's|^wss?://[^:]+:([0-9]+).*|\1|')
+    OPAMP_PATH=$(echo "$OPAMP_ENDPOINT" | sed -E 's|^wss?://[^/]+(/.*)|\1|')
+
+    # Determine HTTP protocol based on WebSocket protocol
+    if [[ "$OPAMP_ENDPOINT" == wss://* ]]; then
+        HTTP_PROTOCOL="https"
+    else
+        HTTP_PROTOCOL="http"
+    fi
+
+    echo "  Test TCP connectivity: nc -zv $MGMT_HOST ${MGMT_PORT:-3001} || telnet $MGMT_HOST ${MGMT_PORT:-3001}"
+    echo "  Test OpAMP endpoint: curl -v $HTTP_PROTOCOL://$MGMT_HOST:${MGMT_PORT:-3001}${OPAMP_PATH} 2>&1 | grep -i 'connected\\|upgrade'"
+    echo "  Check service logs: sudo journalctl -u observiq-otel-collector -n 50 --no-pager"
+else
+    echo "  Test TCP connectivity: nc -zv 10.10.0.7 3001 || telnet 10.10.0.7 3001"
+    echo "  Test OpAMP endpoint: curl -v http://10.10.0.7:3001/v1/opamp 2>&1 | grep -i 'connected\\|upgrade'"
+    echo "  Check service logs: sudo journalctl -u observiq-otel-collector -n 50 --no-pager"
+fi
+echo ""
+```
+
+#### Usage Examples
+
+**Interactive Installation (Recommended):**
+
+When you run the script, it will prompt you to configure the BindPlane connection:
+
+```bash
+sudo bash install-collector.sh
+
+# You'll see:
+# === BindPlane OpAMP Configuration ===
+# Generated unique Agent ID: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+#
+# Do you want to configure BindPlane endpoint and secret key now? (yes/no): yes
+#
+# Please provide the following information from your BindPlane server:
+#
+# Enter BindPlane OpAMP endpoint (e.g., ws://10.10.0.7:3001/v1/opamp): ws://10.10.0.7:3001/v1/opamp
+# Enter BindPlane secret key: abc123def456ghi789
+#
+# Configuration summary:
+#   Endpoint: ws://10.10.0.7:3001/v1/opamp
+#   Secret Key: abc123def4... (masked)
+#   Agent ID: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+```
+
+**Non-Interactive Installation (Use Default Placeholders):**
+
+```bash
+sudo bash install-collector.sh
+
+# When prompted:
+# Do you want to configure BindPlane endpoint and secret key now? (yes/no): no
+#
+# ⚠️  Using default placeholder values.
+#    You will need to update manager.yaml manually after installation.
+
+# Then manually edit the file:
+sudo nano /opt/observiq-otel-collector/manager.yaml
+```
+
+**Where to Get BindPlane Credentials:**
+
+1. Log in to your BindPlane server web UI
+2. Navigate to: **Settings** → **Installation** (or **Agent Installation**)
+3. Select **Linux** as the operating system
+4. Copy the values from the installation command:
+   ```bash
+   # Example installation command shown in UI:
+   curl -fsSlL install.sh | sh -c "$(cat)" install.sh \
+     -e ws://10.10.0.7:3001/v1/opamp \
+     -s abc123def456ghi789
+
+   # Extract these values:
+   # Endpoint: ws://10.10.0.7:3001/v1/opamp
+   # Secret Key: abc123def456ghi789
+   ```
+
+---
+
+## Uninstallation and Cleanup Procedures
+
+This section provides detailed instructions for completely removing BindPlane components when you need to:
+- Start fresh due to installation issues
+- Remove components from a test environment
+- Perform a clean reinstallation
+
+### ⚠️ WARNING
+**These operations are DESTRUCTIVE and IRREVERSIBLE!**
+- All configuration will be lost
+- All collected data will be deleted
+- All database contents will be removed
+- Backups should be created before proceeding
+
+---
+
+### Collector/Gateway Uninstallation
+
+Use this when you need to completely remove the ObservIQ collector from a gateway or collector VM.
+
+#### Quick Uninstall Script
+
+**File:** `uninstall-collector.sh`
+
+```bash
+#!/bin/bash
+# Complete uninstallation script for ObservIQ Collector
+# WARNING: This will remove ALL collector data and configuration
+
+set -euo pipefail
+
+echo "======================================"
+echo "ObservIQ Collector Uninstallation"
+echo "======================================"
+echo ""
+echo "⚠️  WARNING: This will completely remove the collector and all data!"
+echo ""
+
+# Confirmation prompt
+read -p "Are you sure you want to continue? (yes/no): " CONFIRM
+if [ "$CONFIRM" != "yes" ]; then
+    echo "Uninstallation cancelled."
+    exit 0
+fi
+
+echo ""
+echo "1. Stopping and disabling service..."
+echo "--------------------------------------"
+if systemctl is-active --quiet observiq-otel-collector; then
+    sudo systemctl stop observiq-otel-collector
+    echo "✓ Service stopped"
+else
+    echo "Service is not running"
+fi
+
+if systemctl is-enabled --quiet observiq-otel-collector 2>/dev/null; then
+    sudo systemctl disable observiq-otel-collector
+    echo "✓ Service disabled"
+fi
+
+echo ""
+echo "2. Removing systemd service file..."
+echo "--------------------------------------"
+if [ -f /etc/systemd/system/observiq-otel-collector.service ]; then
+    sudo rm /etc/systemd/system/observiq-otel-collector.service
+    echo "✓ Service file removed"
+fi
+
+sudo systemctl daemon-reload
+sudo systemctl reset-failed
+echo "✓ Systemd reloaded"
+
+echo ""
+echo "3. Removing installation directory..."
+echo "--------------------------------------"
+if [ -d /opt/observiq-otel-collector ]; then
+    sudo rm -rf /opt/observiq-otel-collector
+    echo "✓ Removed /opt/observiq-otel-collector"
+fi
+
+echo ""
+echo "4. Removing storage directories..."
+echo "--------------------------------------"
+if [ -d /var/log/observiq-otel-collector ]; then
+    sudo rm -rf /var/log/observiq-otel-collector
+    echo "✓ Removed /var/log/observiq-otel-collector"
+fi
+
+if [ -d /var/lib/observiq-otel-collector ]; then
+    sudo rm -rf /var/lib/observiq-otel-collector
+    echo "✓ Removed /var/lib/observiq-otel-collector"
+fi
+
+if [ -d /storage ]; then
+    echo "⚠️  /storage directory exists. Remove manually if not used by other services:"
+    echo "   sudo rm -rf /storage"
+fi
+
+echo ""
+echo "5. Removing service user..."
+echo "--------------------------------------"
+if id bdot >/dev/null 2>&1; then
+    # Kill any remaining processes
+    sudo pkill -u bdot || true
+    sleep 2
+
+    # Remove user
+    sudo userdel -r bdot 2>/dev/null || sudo userdel bdot
+    echo "✓ Removed user 'bdot'"
+else
+    echo "User 'bdot' does not exist"
+fi
+
+echo ""
+echo "6. Cleaning up package directory (optional)..."
+echo "--------------------------------------"
+if [ -d /opt/bindplane-packages/collector ]; then
+    echo "Package directory exists at: /opt/bindplane-packages/collector"
+    read -p "Remove package directory? (yes/no): " REMOVE_PKG
+    if [ "$REMOVE_PKG" = "yes" ]; then
+        sudo rm -rf /opt/bindplane-packages/collector
+        echo "✓ Removed package directory"
+    fi
+fi
+
+echo ""
+echo "======================================"
+echo "Uninstallation Complete!"
+echo "======================================"
+echo ""
+echo "The following have been removed:"
+echo "  ✓ Collector service and configuration"
+echo "  ✓ Installation directory (/opt/observiq-otel-collector)"
+echo "  ✓ Log files (/var/log/observiq-otel-collector)"
+echo "  ✓ Storage directories (/var/lib/observiq-otel-collector)"
+echo "  ✓ Service user (bdot)"
+echo ""
+echo "You can now perform a fresh installation if needed."
+echo ""
+```
+
+#### Manual Uninstallation Steps
+
+If you prefer to uninstall manually:
+
+```bash
+# 1. Stop and disable the service
+sudo systemctl stop observiq-otel-collector
+sudo systemctl disable observiq-otel-collector
+
+# 2. Remove systemd service file
+sudo rm /etc/systemd/system/observiq-otel-collector.service
+sudo systemctl daemon-reload
+sudo systemctl reset-failed
+
+# 3. Remove installation directory
+sudo rm -rf /opt/observiq-otel-collector
+
+# 4. Remove storage directories
+sudo rm -rf /var/log/observiq-otel-collector
+sudo rm -rf /var/lib/observiq-otel-collector
+# Optional: sudo rm -rf /storage  # Only if not used by other services
+
+# 5. Remove service user
+sudo pkill -u bdot || true
+sudo userdel -r bdot
+
+# 6. Optional: Remove package directory
+# sudo rm -rf /opt/bindplane-packages/collector
+
+# 7. Verify cleanup
+echo "Checking for remaining files..."
+sudo find / -name "*observiq*" -o -name "*bdot*" 2>/dev/null | grep -v proc
+```
+
+#### Partial Cleanup (Keep Data, Reset Config)
+
+If you want to keep data but reset the configuration:
+
+```bash
+# Stop the service
+sudo systemctl stop observiq-otel-collector
+
+# Backup current config
+sudo cp /opt/observiq-otel-collector/manager.yaml /tmp/manager.yaml.backup
+
+# Remove only configuration files
+sudo rm /opt/observiq-otel-collector/manager.yaml
+sudo rm /opt/observiq-otel-collector/config.yaml
+
+# Keep: /var/log/observiq-otel-collector (logs)
+# Keep: /var/lib/observiq-otel-collector (state/checkpoints)
+# Keep: /storage (buffered data)
+
+# Now you can reconfigure and restart
+# Follow installation steps to recreate manager.yaml
+```
+
+---
+
+### Management Server Uninstallation
+
+Use this when you need to completely remove the BindPlane management server and PostgreSQL database.
+
+#### Quick Uninstall Script
+
+**File:** `uninstall-management-server.sh`
+
+```bash
+#!/bin/bash
+# Complete uninstallation script for BindPlane Management Server and PostgreSQL
+# WARNING: This will remove ALL BindPlane data, configurations, and database
+
+set -euo pipefail
+
+echo "======================================"
+echo "BindPlane Management Server Uninstallation"
+echo "======================================"
+echo ""
+echo "⚠️  WARNING: This will completely remove:"
+echo "  - BindPlane server and all configurations"
+echo "  - PostgreSQL 16 and ALL databases"
+echo "  - All collected telemetry data"
+echo "  - All user accounts and settings"
+echo ""
+
+# Confirmation prompt
+read -p "Are you sure you want to continue? (yes/no): " CONFIRM
+if [ "$CONFIRM" != "yes" ]; then
+    echo "Uninstallation cancelled."
+    exit 0
+fi
+
+echo ""
+read -p "Create a database backup before uninstalling? (yes/no): " BACKUP
+if [ "$BACKUP" = "yes" ]; then
+    BACKUP_FILE="/tmp/bindplane_backup_$(date +%Y%m%d_%H%M%S).sql"
+    echo "Creating database backup..."
+    sudo -u postgres pg_dump bindplane > "$BACKUP_FILE" 2>/dev/null || echo "⚠️  Backup failed or database doesn't exist"
+    if [ -f "$BACKUP_FILE" ]; then
+        echo "✓ Backup saved to: $BACKUP_FILE"
+    fi
+fi
+
+echo ""
+echo "1. Stopping BindPlane service..."
+echo "--------------------------------------"
+if systemctl is-active --quiet bindplane 2>/dev/null; then
+    sudo systemctl stop bindplane
+    echo "✓ BindPlane service stopped"
+fi
+
+if systemctl is-enabled --quiet bindplane 2>/dev/null; then
+    sudo systemctl disable bindplane
+    echo "✓ BindPlane service disabled"
+fi
+
+echo ""
+echo "2. Stopping PostgreSQL service..."
+echo "--------------------------------------"
+if systemctl is-active --quiet postgresql-16 2>/dev/null; then
+    sudo systemctl stop postgresql-16
+    echo "✓ PostgreSQL stopped"
+fi
+
+if systemctl is-enabled --quiet postgresql-16 2>/dev/null; then
+    sudo systemctl disable postgresql-16
+    echo "✓ PostgreSQL disabled"
+fi
+
+echo ""
+echo "3. Removing BindPlane RPM package..."
+echo "--------------------------------------"
+if rpm -q bindplane-ee >/dev/null 2>&1; then
+    sudo rpm -e bindplane-ee
+    echo "✓ BindPlane package removed"
+else
+    echo "BindPlane package not installed"
+fi
+
+echo ""
+echo "4. Removing PostgreSQL packages..."
+echo "--------------------------------------"
+if rpm -q postgresql16-server >/dev/null 2>&1; then
+    sudo dnf remove -y postgresql16* pgdg-redhat-repo 2>/dev/null || \
+    sudo rpm -e postgresql16-server postgresql16-contrib postgresql16 postgresql16-libs 2>/dev/null
+    echo "✓ PostgreSQL packages removed"
+else
+    echo "PostgreSQL packages not installed"
+fi
+
+echo ""
+echo "5. Removing BindPlane directories..."
+echo "--------------------------------------"
+sudo rm -rf /var/lib/bindplane
+sudo rm -rf /etc/bindplane
+sudo rm -rf /opt/bindplane
+echo "✓ BindPlane directories removed"
+
+echo ""
+echo "6. Removing PostgreSQL data directory..."
+echo "--------------------------------------"
+sudo rm -rf /var/lib/pgsql
+echo "✓ PostgreSQL data removed"
+
+echo ""
+echo "7. Removing systemd service files..."
+echo "--------------------------------------"
+sudo rm -f /etc/systemd/system/bindplane.service
+sudo rm -f /usr/lib/systemd/system/postgresql-16.service
+sudo systemctl daemon-reload
+sudo systemctl reset-failed
+echo "✓ Service files removed"
+
+echo ""
+echo "8. Removing service users..."
+echo "--------------------------------------"
+
+# Remove bindplane user
+if id bindplane >/dev/null 2>&1; then
+    sudo pkill -u bindplane || true
+    sleep 2
+    sudo userdel -r bindplane 2>/dev/null || sudo userdel bindplane
+    echo "✓ Removed user 'bindplane'"
+fi
+
+# Remove postgres user
+if id postgres >/dev/null 2>&1; then
+    sudo pkill -u postgres || true
+    sleep 2
+    sudo userdel -r postgres 2>/dev/null || sudo userdel postgres
+    echo "✓ Removed user 'postgres'"
+fi
+
+echo ""
+echo "9. Removing package directory (optional)..."
+echo "--------------------------------------"
+if [ -d /opt/bindplane-packages/management ]; then
+    read -p "Remove package directory? (yes/no): " REMOVE_PKG
+    if [ "$REMOVE_PKG" = "yes" ]; then
+        sudo rm -rf /opt/bindplane-packages/management
+        echo "✓ Removed package directory"
+    fi
+fi
+
+echo ""
+echo "10. Cleaning up PostgreSQL repository..."
+echo "--------------------------------------"
+if [ -f /etc/yum.repos.d/pgdg-redhat-all.repo ]; then
+    sudo rm -f /etc/yum.repos.d/pgdg-redhat-all.repo
+    echo "✓ Removed PostgreSQL repository"
+fi
+
+echo ""
+echo "======================================"
+echo "Uninstallation Complete!"
+echo "======================================"
+echo ""
+echo "The following have been removed:"
+echo "  ✓ BindPlane server and configuration"
+echo "  ✓ PostgreSQL 16 and all databases"
+echo "  ✓ All service users (bindplane, postgres)"
+echo "  ✓ All data directories"
+echo ""
+if [ -f "$BACKUP_FILE" ]; then
+    echo "Database backup saved at: $BACKUP_FILE"
+    echo ""
+fi
+echo "You can now perform a fresh installation if needed."
+echo ""
+```
+
+#### Manual Uninstallation Steps
+
+If you prefer to uninstall manually:
+
+```bash
+# BACKUP FIRST (if needed)
+sudo -u postgres pg_dump bindplane > /tmp/bindplane_backup_$(date +%Y%m%d).sql
+
+# 1. Stop services
+sudo systemctl stop bindplane
+sudo systemctl stop postgresql-16
+sudo systemctl disable bindplane
+sudo systemctl disable postgresql-16
+
+# 2. Remove BindPlane package
+sudo rpm -e bindplane-ee
+
+# 3. Remove PostgreSQL packages
+sudo dnf remove -y postgresql16-server postgresql16-contrib postgresql16 postgresql16-libs
+sudo rpm -e pgdg-redhat-repo
+
+# 4. Remove data directories
+sudo rm -rf /var/lib/bindplane
+sudo rm -rf /etc/bindplane
+sudo rm -rf /opt/bindplane
+sudo rm -rf /var/lib/pgsql
+
+# 5. Remove service files
+sudo rm -f /etc/systemd/system/bindplane.service
+sudo systemctl daemon-reload
+sudo systemctl reset-failed
+
+# 6. Remove users
+sudo pkill -u bindplane || true
+sudo pkill -u postgres || true
+sleep 2
+sudo userdel -r bindplane
+sudo userdel -r postgres
+
+# 7. Clean up repositories
+sudo rm -f /etc/yum.repos.d/pgdg-redhat-all.repo
+
+# 8. Optional: Remove packages
+# sudo rm -rf /opt/bindplane-packages/management
+
+# 9. Verify cleanup
+echo "Checking for remaining files..."
+sudo find / \( -name "*bindplane*" -o -name "*postgres*" \) -type f 2>/dev/null | grep -v -E "(proc|sys|dev)"
+```
+
+---
+
+### PostgreSQL-Only Uninstallation
+
+Use this if you only need to remove PostgreSQL while keeping BindPlane (not recommended for production).
+
+#### Quick PostgreSQL Removal
+
+```bash
+#!/bin/bash
+# Remove PostgreSQL only
+# WARNING: BindPlane will not function without PostgreSQL
+
+echo "Stopping PostgreSQL..."
+sudo systemctl stop postgresql-16
+sudo systemctl disable postgresql-16
+
+echo "Creating backup..."
+sudo -u postgres pg_dump bindplane > /tmp/bindplane_db_backup_$(date +%Y%m%d).sql
+
+echo "Removing PostgreSQL packages..."
+sudo dnf remove -y postgresql16-server postgresql16-contrib postgresql16 postgresql16-libs
+
+echo "Removing data directory..."
+sudo rm -rf /var/lib/pgsql
+
+echo "Removing user..."
+sudo userdel -r postgres
+
+echo "PostgreSQL removed. Database backup at: /tmp/bindplane_db_backup_*.sql"
+```
+
+---
+
+### Troubleshooting Failed Uninstallation
+
+#### If Service Won't Stop
+
+```bash
+# Force kill processes
+sudo pkill -9 observiq-otel-collector  # For collector
+sudo pkill -9 bindplane                # For management server
+sudo pkill -9 postgres                 # For PostgreSQL
+
+# Wait a moment
+sleep 3
+
+# Then retry uninstallation
+```
+
+#### If User Can't Be Removed
+
+```bash
+# Check for running processes
+ps aux | grep bdot
+ps aux | grep bindplane
+ps aux | grep postgres
+
+# Kill all processes
+sudo pkill -9 -u bdot
+sudo pkill -9 -u bindplane
+sudo pkill -9 -u postgres
+
+# Force user removal
+sudo userdel -f bdot
+sudo userdel -f bindplane
+sudo userdel -f postgres
+
+# Manually remove home directories if still present
+sudo rm -rf /var/lib/observiq-otel-collector
+sudo rm -rf /var/lib/bindplane
+sudo rm -rf /var/lib/pgsql
+```
+
+#### If RPM Removal Fails
+
+```bash
+# Force remove without running scripts
+sudo rpm -e --noscripts bindplane-ee
+sudo rpm -e --noscripts postgresql16-server
+
+# Or ignore dependencies
+sudo rpm -e --nodeps bindplane-ee
+sudo rpm -e --nodeps postgresql16-server
+```
+
+#### Check for Remaining Files
+
+```bash
+# Find all BindPlane-related files
+sudo find / -name "*bindplane*" -type f 2>/dev/null | grep -v proc
+
+# Find all collector-related files
+sudo find / -name "*observiq*" -type f 2>/dev/null | grep -v proc
+
+# Find all PostgreSQL-related files
+sudo find / -name "*postgres*" -type f 2>/dev/null | grep -v -E "(proc|sys)"
+
+# Remove manually if needed
+sudo rm -rf <path>
+```
+
+---
+
+### Post-Uninstallation Verification
+
+After uninstalling, verify everything is removed:
+
+```bash
+#!/bin/bash
+# Verification script
+
+echo "Checking services..."
+systemctl status observiq-otel-collector 2>/dev/null && echo "⚠️  Collector service still exists" || echo "✓ Collector service removed"
+systemctl status bindplane 2>/dev/null && echo "⚠️  BindPlane service still exists" || echo "✓ BindPlane service removed"
+systemctl status postgresql-16 2>/dev/null && echo "⚠️  PostgreSQL service still exists" || echo "✓ PostgreSQL service removed"
+
+echo ""
+echo "Checking users..."
+id bdot 2>/dev/null && echo "⚠️  User 'bdot' still exists" || echo "✓ User 'bdot' removed"
+id bindplane 2>/dev/null && echo "⚠️  User 'bindplane' still exists" || echo "✓ User 'bindplane' removed"
+id postgres 2>/dev/null && echo "⚠️  User 'postgres' still exists" || echo "✓ User 'postgres' removed"
+
+echo ""
+echo "Checking directories..."
+[ -d /opt/observiq-otel-collector ] && echo "⚠️  /opt/observiq-otel-collector still exists" || echo "✓ Collector directory removed"
+[ -d /opt/bindplane ] && echo "⚠️  /opt/bindplane still exists" || echo "✓ BindPlane directory removed"
+[ -d /var/lib/pgsql ] && echo "⚠️  /var/lib/pgsql still exists" || echo "✓ PostgreSQL directory removed"
+
+echo ""
+echo "Checking for running processes..."
+pgrep -f observiq && echo "⚠️  Collector processes still running" || echo "✓ No collector processes"
+pgrep -f bindplane && echo "⚠️  BindPlane processes still running" || echo "✓ No BindPlane processes"
+pgrep -f postgres && echo "⚠️  PostgreSQL processes still running" || echo "✓ No PostgreSQL processes"
+
+echo ""
+echo "Verification complete!"
 ```
 
 ---
@@ -424,6 +1404,48 @@ echo "4. Start service: sudo systemctl start observiq-otel-collector"
 ## System Configuration Requirements
 
 ### Apply to All Servers (Management, Gateway, Collector)
+
+#### 0. Service Users
+
+**Requirement:** The following system users must exist for BindPlane services to run properly.
+
+| User | Type | Created By | Home Directory | Shell | Purpose |
+|------|------|------------|----------------|-------|---------|
+| **bindplane** | System user | `install-management-server.sh` | `/var/lib/bindplane` | `/bin/false` | BindPlane management server service |
+| **postgres** | System user | PostgreSQL RPM (automatic) | `/var/lib/pgsql` | `/bin/bash` | PostgreSQL database service |
+| **bdot** | System user | `install-collector.sh` | `/var/lib/observiq-otel-collector` | `/bin/false` | ObservIQ collector/gateway service |
+| **bindplane** (DB) | Database user | PostgreSQL configuration | N/A | N/A | BindPlane database access in PostgreSQL |
+
+**User Creation Commands:**
+
+The installation scripts automatically create these users. If you need to create them manually:
+
+```bash
+# BindPlane system user (Management Server)
+sudo useradd -r -m -d /var/lib/bindplane -s /bin/false -c "BindPlane Service User" bindplane
+
+# ObservIQ Collector system user (Gateways & Collectors)
+sudo useradd -r -m -d /var/lib/observiq-otel-collector -s /bin/false -c "ObservIQ Collector Service User" bdot
+
+# PostgreSQL user (created automatically by postgresql16-server RPM)
+# No manual action required
+
+# BindPlane database user (created during PostgreSQL configuration)
+# See install-management-server.sh PostgreSQL configuration section
+```
+
+**Verification:**
+
+```bash
+# Check if system users exist
+id bindplane  # Should show uid, gid for bindplane
+id postgres   # Should show uid, gid for postgres
+id bdot       # Should show uid, gid for bdot
+
+# Check database user
+sudo -u postgres psql -c "\du" | grep bindplane
+# Should show: bindplane | Create | {}
+```
 
 #### 1. File Descriptor Limits
 
@@ -2168,6 +3190,239 @@ sudo journalctl -u bindplane -f | grep "ldap\|authentication"
 
 ---
 
+## Installation Procedure
+
+### Overview
+
+The BindPlane Management Server installation is split into **two parts** for better control and troubleshooting:
+
+1. **Part 1: PostgreSQL Database Installation** - Use `install-postgresql.sh`
+2. **Part 2: BindPlane Server Installation** - Use official `install-linux.sh` with offline package
+
+**Benefits of this approach:**
+- ✓ Better control over database configuration
+- ✓ Independent testing of database before BindPlane installation
+- ✓ Easier troubleshooting
+- ✓ Production-grade PostgreSQL tuning applied automatically
+
+### Part 1: PostgreSQL Database Installation
+
+**Script:** `install-postgresql.sh`
+
+**What it does:**
+- Installs PostgreSQL 16 packages from offline repository
+- Initializes database cluster with production settings
+- Creates `bindplane` database and user
+- Configures production-grade settings for 2 TB/day workload
+- Sets up authentication (scram-sha-256)
+- Enables and starts PostgreSQL service
+
+**Production PostgreSQL Settings Applied:**
+```
+Memory:
+  shared_buffers = 2GB              # 25% of 8 GB RAM
+  effective_cache_size = 6GB        # 75% of RAM
+  work_mem = 20MB
+  maintenance_work_mem = 512MB
+
+Performance:
+  max_connections = 100
+  wal_buffers = 16MB
+  checkpoint_completion_target = 0.9
+  random_page_cost = 1.1            # SSD optimized
+  effective_io_concurrency = 200
+
+Security:
+  listen_addresses = 'localhost'    # Local only
+  password_encryption = scram-sha-256
+```
+
+**Installation Steps:**
+
+1. Ensure PostgreSQL packages are in `/tmp/bindplane-packages/management/`:
+   - `pgdg-redhat-repo-latest.noarch.rpm`
+   - `postgresql16-libs-16.*.rpm`
+   - `postgresql16-16.*.rpm`
+   - `postgresql16-server-16.*.rpm`
+   - `postgresql16-contrib-16.*.rpm`
+
+2. Run the PostgreSQL installation script:
+   ```bash
+   chmod +x install-postgresql.sh
+   sudo bash install-postgresql.sh
+   ```
+
+3. When prompted, create a secure database password:
+   ```
+   Enter password for BindPlane database user: ****************
+   Confirm password: ****************
+   ```
+
+   **Password Requirements:**
+   - Minimum 16 characters
+   - Mix of uppercase, lowercase, numbers, special characters
+   - Example: `Bp$3cUr3P@ssw0rd!2025#Db`
+
+4. **Save the password securely** - You'll need it for BindPlane installation!
+
+5. Verify PostgreSQL is running:
+   ```bash
+   sudo systemctl status postgresql-16
+   sudo -u postgres psql -l  # Should show 'bindplane' database
+   ```
+
+### Part 2: BindPlane Server Installation
+
+**Script:** Official `install-linux.sh` from BindPlane
+
+**Installation Command:**
+```bash
+sudo bash install-linux.sh -f /tmp/bindplane-packages/management/bindplane-ee_linux_amd64.rpm --init
+```
+
+**Interactive Configuration Prompts:**
+
+The `--init` flag will prompt for the following production configuration:
+
+| Prompt | Production Value | Notes |
+|--------|-----------------|-------|
+| **Remote URL** | `http://34.8.129.193:8080` | Load Balancer external URL (or DNS name) |
+| **Server URL** | `http://0.0.0.0:3001` | Listen on all interfaces (accept default) |
+| **Storage Type** | `postgres` | Required for production |
+| **Postgres Host** | `localhost` or `127.0.0.1` | Database on same server |
+| **Postgres Port** | `5432` | Accept default |
+| **Postgres Database** | `bindplane` | Accept default |
+| **Postgres Username** | `bindplane` | Accept default |
+| **Postgres Password** | `<your-password>` | From Part 1 installation |
+| **Postgres Max Connections** | `100` | Accept default (matches PostgreSQL config) |
+| **Enable TLS** | `n` (initial), `Y` (production) | Start without TLS, enable later |
+| **Sessions Secret Key** | `<auto-generate>` | Press Enter to auto-generate |
+| **Admin Username** | `admin` | Or your preferred username |
+| **Admin Password** | `<strong-password>` | Min 12 chars, mixed case, numbers, special chars |
+
+**Complete Example Session:**
+```bash
+$ sudo bash install-linux.sh -f /tmp/bindplane-packages/management/bindplane-ee_linux_amd64.rpm --init
+
+Remote URL [http://localhost:3001]: http://34.8.129.193:8080
+Server URL [http://0.0.0.0:3001]: http://0.0.0.0:3001
+Which type of store would you like to use? [postgres, bbolt] (bbolt): postgres
+Postgres host [localhost]: localhost
+Postgres port [5432]: 5432
+Postgres database [bindplane]: bindplane
+Postgres username [bindplane]: bindplane
+Postgres password: ****************
+Postgres max connections [100]: 100
+Would you like to enable TLS? [Y/n]: n
+Sessions secret key [auto-generated]: <Enter>
+Username [admin]: admin
+Password: ****************
+Confirm password: ****************
+
+✓ Configuration saved to /etc/bindplane/config.yaml
+✓ BindPlane service enabled
+✓ Starting BindPlane...
+✓ BindPlane is running!
+
+Access BindPlane at: http://34.8.129.193:8080
+```
+
+### Configuration Details for Production
+
+**Network Configuration (Behind Load Balancer):**
+
+```yaml
+# /etc/bindplane/config.yaml
+network:
+  host: 0.0.0.0                      # Listen on all interfaces
+  port: "3001"                       # Internal port
+  remoteURL: http://34.8.129.193:8080   # External URL via Load Balancer
+  tlsMinVersion: "1.3"
+
+store:
+  type: postgres
+  postgres:
+    host: localhost                  # PostgreSQL on same server
+    port: "5432"
+    database: bindplane
+    username: bindplane
+    password: <your-secure-password>
+    maxConnections: 100
+    sslmode: disable                 # localhost connection doesn't need SSL
+```
+
+**Why These Settings:**
+
+| Setting | Value | Reason |
+|---------|-------|--------|
+| `host: 0.0.0.0` | Listen on all interfaces | Required for Load Balancer to reach BindPlane |
+| `port: 3001` | Internal listening port | BindPlane's default port |
+| `remoteURL` | Load Balancer URL | What agents and users use to connect |
+| `postgres.host` | `localhost` | Best performance and security for local DB |
+| `postgres.sslmode` | `disable` | Localhost connection doesn't need SSL overhead |
+
+**Load Balancer Configuration Requirements:**
+
+Your TCP Load Balancer must be configured as:
+
+| Component | Configuration |
+|-----------|--------------|
+| **Frontend (External)** | IP: `34.8.129.193`, Port: `8080` |
+| **Backend Target** | Instance Group with management server |
+| **Backend Port** | Named Port: `bindplane-temp` → `3001` |
+| **Health Check** | TCP on port `3001` |
+| **Protocol** | TCP (HTTP/HTTPS termination at LB optional) |
+
+### Post-Installation Steps
+
+1. **Verify Services:**
+   ```bash
+   sudo systemctl status bindplane
+   sudo systemctl status postgresql-16
+   sudo ss -tlnp | grep -E '3001|5432'
+   ```
+
+2. **Test Access:**
+   ```bash
+   # Via Load Balancer
+   curl -I http://34.8.129.193:8080/login
+
+   # Direct (from server)
+   curl -I http://localhost:3001/login
+   ```
+
+3. **First Login:**
+   - Open: `http://34.8.129.193:8080/login`
+   - Login with admin credentials
+   - **Change password immediately**
+
+4. **Enable TLS (Production Required):**
+   ```bash
+   # Copy certificates
+   sudo mkdir -p /etc/bindplane/ssl
+   sudo cp server.crt server.key ca.crt /etc/bindplane/ssl/
+   sudo chown -R bindplane:bindplane /etc/bindplane/ssl
+   sudo chmod 600 /etc/bindplane/ssl/server.key
+
+   # Update config.yaml with TLS settings
+   # Restart: sudo systemctl restart bindplane
+   ```
+
+### Detailed Installation Guide
+
+For complete step-by-step instructions, configuration examples, and troubleshooting, see:
+
+**📄 [BindPlane Installation Guide](bindplane-installation-guide.md)**
+
+This comprehensive guide includes:
+- Detailed explanation of each configuration prompt
+- Production configuration examples
+- TLS configuration steps
+- Troubleshooting common issues
+- Post-installation validation steps
+
+---
+
 ## Pre-Installation Checklist
 
 Use this checklist to ensure all requirements are met before deployment.
@@ -2181,10 +3436,10 @@ Use this checklist to ensure all requirements are met before deployment.
 - [ ] **NTP synchronized** across all servers (`chronyc tracking`)
 - [ ] **Disk space verified:**
   - Management: 100 GB available
-  - Gateways/Collectors: 1 TB available
+  - Gateways/Collectors: 50 GB available
 - [ ] **Memory requirements met:**
   - Management: 8 GB RAM minimum
-  - Gateways/Collectors: 16 GB RAM minimum
+  - Gateways/Collectors: 4 GB RAM minimum
 
 ### Network Requirements
 
@@ -2547,8 +3802,22 @@ cd management
 wget "https://storage.googleapis.com/bindplane-op-releases/bindplane/${BINDPLANE_VERSION}/bindplane-ee_linux_amd64.rpm" -O "bindplane-ee_v${BINDPLANE_VERSION}-linux_amd64.rpm"
 
 # PostgreSQL
-echo "Downloading PostgreSQL 16..."
+echo "Downloading PostgreSQL 16 repository..."
 wget "https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm"
+
+# PostgreSQL Dependencies
+echo "Downloading PostgreSQL dependencies from Rocky Linux..."
+cd ../common
+wget "https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/l/libicu-67.1-10.el9_6.x86_64.rpm"
+wget "https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/l/lz4-1.9.3-5.el9.x86_64.rpm"
+wget "https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/l/lz4-libs-1.9.3-5.el9.x86_64.rpm"
+wget "https://download.rockylinux.org/pub/rocky/9/AppStream/x86_64/os/Packages/l/libxslt-1.1.34-13.el9_6.x86_64.rpm"
+
+# OpenSSL and CA Certificates
+echo "Downloading OpenSSL and CA certificates..."
+wget "https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/o/openssl-3.5.1-4.el9_7.x86_64.rpm"
+wget "https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/o/openssl-libs-3.5.1-4.el9_7.x86_64.rpm"
+wget "https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/Packages/c/ca-certificates-2025.2.80_v9.0.305-91.el9.noarch.rpm"
 
 # ObservIQ Collector
 echo "Downloading ObservIQ Collector..."
@@ -3901,4 +5170,3 @@ echo "show servers state" | sudo socat stdio /run/haproxy/admin.sock
 ---
 
 **END OF DOCUMENT**
-
