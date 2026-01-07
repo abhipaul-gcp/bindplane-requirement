@@ -580,18 +580,3 @@ EOF
 
 bash /tmp/debug_cert.sh
 ```
-
-**Send this output when requesting help.**
-
----
-
-## Related Documentation
-
-- **[Verify TLS Certificates](./VERIFY_TLS_CERTIFICATES.md)** - Quick verification commands
-- **[WSS Intermediate CA Implementation](./wss-intermediate-ca-implementation.md)** - Full setup guide
-- **[Troubleshooting Section](./wss-intermediate-ca-implementation.md#troubleshooting)** - More troubleshooting scenarios
-
----
-
-**Last Updated:** 2026-01-06
-**Version:** 1.0
